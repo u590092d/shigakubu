@@ -156,15 +156,14 @@ class SegmentationLabel:
             moraSegments.append(curMoraSegment)
         return SegmentationLabel(moraSegments, separatedByMora=True)
 
-def read_wave_in_jvs(wave_path,label_path,sr,time_span=800):
+def read_wave_in_jvs(wave_path,label_path,sr,time_span=800,target=['a','i','u','e','o','a:','i:','u:','e:','o:']):
   wave_data, _ = librosa.load(wave_path, sr=sr)
   label = read_lab(label_path)
-  boin = ['a','i','u','e','o','a:','i:','u:','e:','o:']
 
   input_data = []
   input_label_data = []
   for seg in label.segments:
-    if seg.label in boin:
+    if seg.label in target:
       start = int(seg.tStart*sr)
       end = int(seg.tEnd*sr)
       if (end - start) <= time_span:
@@ -179,7 +178,7 @@ def read_wave_in_jvs(wave_path,label_path,sr,time_span=800):
 
   return np.array(input_data,dtype=object),np.array(input_label_data,dtype=object)
 
-def read_jvs(folder_num,sr,time_span=800):
+def read_jvs(folder_num,sr,time_span=800,target=['a','i','u','e','o','a:','i:','u:','e:','o:']):
   folder_path = 'data'
   wave_folder_path = os.path.join(folder_path,f"jvs{folder_num:03d}\parallel100\wav24kHz16bit")
   label_folder_path = os.path.join(folder_path,f"jvs{folder_num:03d}\parallel100\lab\mon")
@@ -191,7 +190,7 @@ def read_jvs(folder_num,sr,time_span=800):
     filename = f"VOICEACTRESS100_{i:03d}"
     wave_path = os.path.join(wave_folder_path,filename+".wav")
     label_path = os.path.join(label_folder_path,filename+".lab")
-    tmp_data,tmp_label=read_wave_in_jvs(wave_path,label_path,sr,time_span)
+    tmp_data,tmp_label=read_wave_in_jvs(wave_path,label_path,sr,time_span,target=target)
     if(tmp_data.shape[0]!=0):
       input_data.append(tmp_data)
       input_label_data.append(tmp_label)
