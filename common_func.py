@@ -172,8 +172,11 @@ def read_wave_in_jvs(wave_path,label_path,sr,time_span=800,target=['a','i','u','
       wavelen = len(tmp_wave)
       for i in range(0,wavelen//time_span):
         tmp = tmp_wave[time_span*i:time_span*(i+1)]#0.05秒
-        input_data.append(tmp)
-        input_label_data.append(seg.label)
+        tmp = np.array(tmp)
+        if np.max(tmp)>0.1:
+          print(np.max(tmp))
+          input_data.append(tmp)
+          input_label_data.append(seg.label)
 
 
   return np.array(input_data,dtype=object),np.array(input_label_data,dtype=object)
