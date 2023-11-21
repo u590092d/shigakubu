@@ -92,16 +92,16 @@ while True:
   if keyboard.is_pressed('escape'):
     print("break")
     sys.exit()
-    break
+
   z=cmm.output_data_batch_normalization(stream,sr,n_fft,hop_length,n_mels,frame_len,dataset_mean,dataset_std,model,device)
-  
+  plt.cla()
   ax.scatter(z[0],z[1], c="pink", alpha=1, linewidths=2,
       edgecolors="red")
   
   ax.imshow(im, extent=[*xlim, *ylim], aspect='auto',alpha=0.6)
   plt.draw()
   plt.pause(0.1)
-  plt.cla()
+
 
 """
 while  True:

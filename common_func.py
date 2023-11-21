@@ -284,7 +284,7 @@ def cep(audio,frame_len=512,hop_len=256,dim=50):
 
 def normal(x):
 
-  x_scaled = (x-x.min())/(x.max()-x.min())
+  x_scaled = (x-x.min())/(x.max()-x.min()+1e-10)
 
   return x_scaled
 
