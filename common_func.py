@@ -15,7 +15,7 @@ import scipy.signal
 import re
 import sys
 import pyaudio
-
+from PIL import Image
 class VAE(nn.Module):
     def __init__(self, x_dim, z_dim):
       super(VAE, self).__init__()
@@ -155,8 +155,38 @@ class SegmentationLabel:
         if curMoraSegment:
             moraSegments.append(curMoraSegment)
         return SegmentationLabel(moraSegments, separatedByMora=True)
-
-def read_wave_in_jvs(wave_path,label_path,sr,time_span=800,target=['a','i','u','e','o','a:','i:','u:','e:','o:']):
+    
+class point:
+  def __init__(self,z,none_flag=False):
+      self.z=z
+      self.none_flag = none_flag
+  def predict(self,algorithm,labeltoword=None):
+    z_reshaped = np.reshape(self.z,(1,2))
+    predict = algorithm.predict(z_reshaped)
+    if labeltoword==None:
+      return predict
+    else:
+      return labeltoword[predict[0]]
+  def get_z(self):
+     return self.z
+class visualizer2D:
+  def __init__(self,x_lim=[-3,3],y_lim=[-3,3],fig_size=[10,10],image_path="z.png"):
+    self.fig_anm = plt.figure(figsize=(fig_size[0],fig_size[1]))
+    self.ax=self.fig_anm.add_subplot(1,1,1)
+    self.image = Image.open(image_path)
+    self.ax.set_xlim(x_lim[0],x_lim[1])
+    self.ax.set_ylim(y_lim[0],y_lim[1])
+    self.xlim = self.ax.get_xlim()
+    self.ylim = self.ax.get_ylim()
+  
+  def visual(self,x,y):
+    self.ax.scatter(x,y, c="pink", alpha=1, linewidths=2,edgecolors="red")
+    self.ax.imshow(self.image,extent=[*self.xlim,*self.ylim], aspect='auto',alpha=0.6) 
+    plt.draw()
+    plt.pause(0.1)
+    plt.cla()      
+    
+def read_wave_in_jvs(wave_path,label_path,sr,time_span=800,threshold=0.1,target=['a','i','u','e','o','a:','i:','u:','e:','o:']):
   wave_data, _ = librosa.load(wave_path, sr=sr)
   label = read_lab(label_path)
 
@@ -173,15 +203,14 @@ def read_wave_in_jvs(wave_path,label_path,sr,time_span=800,target=['a','i','u','
       for i in range(0,wavelen//time_span):
         tmp = tmp_wave[time_span*i:time_span*(i+1)]#0.05秒
         tmp = np.array(tmp)
-        if np.max(tmp)>0.1:
-          print(np.max(tmp))
+        if np.max(tmp)>threshold:
           input_data.append(tmp)
           input_label_data.append(seg.label)
 
 
   return np.array(input_data,dtype=object),np.array(input_label_data,dtype=object)
 
-def read_jvs(folder_num,sr,time_span=800,target=['a','i','u','e','o','a:','i:','u:','e:','o:']):
+def read_jvs(folder_num,sr,time_span=800,threshold=0.1,target=['a','i','u','e','o','a:','i:','u:','e:','o:']):
   folder_path = 'data'
   wave_folder_path = os.path.join(folder_path,f"jvs{folder_num:03d}\parallel100\wav24kHz16bit")
   label_folder_path = os.path.join(folder_path,f"jvs{folder_num:03d}\parallel100\lab\mon")
@@ -193,7 +222,7 @@ def read_jvs(folder_num,sr,time_span=800,target=['a','i','u','e','o','a:','i:','
     filename = f"VOICEACTRESS100_{i:03d}"
     wave_path = os.path.join(wave_folder_path,filename+".wav")
     label_path = os.path.join(label_folder_path,filename+".lab")
-    tmp_data,tmp_label=read_wave_in_jvs(wave_path,label_path,sr,time_span,target=target)
+    tmp_data,tmp_label=read_wave_in_jvs(wave_path,label_path,sr,time_span,threshold,target=target)
     if(tmp_data.shape[0]!=0):
       input_data.append(tmp_data)
       input_label_data.append(tmp_label)
@@ -286,7 +315,7 @@ def cep(audio,frame_len=512,hop_len=256,dim=50):
 
 def normal(x):
 
-  x_scaled = (x-x.min())/(x.max()-x.min())
+  x_scaled = (x-x.min())/(x.max()-x.min()+1e-5)
 
   return x_scaled
 
@@ -310,22 +339,33 @@ def stop_recording(audio, stream):
     stream.close()
     audio.terminate()
 
-def output_data(stream,sr,n_fft,hop_length,n_mels,frame_len,dataset_mean,dataset_std,model,device):
+def output_data(sr,n_fft,hop_length,n_mels,frame_len,dataset_mean,dataset_std,model,device,stream=None,input_file_path=None,standard_flag=False,input_type_file=False,threshold=0):
+ 
+       
     audio_data = stream.read(frame_len)
     audio_data = np.frombuffer(audio_data, dtype='int16')/32768
-    mel_spec = librosa.feature.melspectrogram(y=audio_data, sr=sr, n_fft=n_fft, hop_length=hop_length, n_mels=n_mels,center=False)
-    log_mel_spec = librosa.amplitude_to_db(mel_spec, ref=np.max)
-    l2 = log_mel_spec - dataset_mean
-    np_meldata = l2/dataset_std
-    np_meldata = normal(np_meldata)
-    tensor_meldata =torch.from_numpy(np_meldata.astype(np.float32)).clone()
-    x = tensor_meldata.to(device)
-    tmp,z,y=model(x,device)
-    z = z.cpu().detach().numpy()
-    z = z[0] 
-    return z
+    if input_type_file:
+       audio_data = librosa.load(input_file_path, sr=sr)
+    if np.abs(np.max(audio_data))>threshold:
+      mel_spec = librosa.feature.melspectrogram(y=audio_data, sr=sr, n_fft=n_fft, hop_length=hop_length, n_mels=n_mels,center=False)
+      log_mel_spec = librosa.amplitude_to_db(mel_spec, ref=np.max)
+      if standard_flag:
+        l2 = log_mel_spec - dataset_mean
+        log_mel_spec = l2/dataset_std
+        
+      np_meldata = normal(log_mel_spec)
+      tensor_meldata =torch.from_numpy(np_meldata.astype(np.float32)).clone()
+      x = tensor_meldata.to(device)
+      tmp,z,y=model(x,device)
+      z = z.cpu().detach().numpy()
+      z = z[0] 
+      z = point(z)
+      return z
+    else:
+       z=point(z=None,none_flag=True)
+    
 def output_data_batch_normalization(stream,sr,n_fft,hop_length,n_mels,frame_len,dataset_mean,dataset_std,model,device):
-    audio_data = stream.read(frame_len)
+    audio_data = stream.read(frame_len),
     audio_data = np.frombuffer(audio_data, dtype='int16')/32768
     mel_spec = librosa.feature.melspectrogram(y=audio_data, sr=sr, n_fft=n_fft, hop_length=hop_length, n_mels=n_mels,center=False)
     log_mel_spec = librosa.amplitude_to_db(mel_spec, ref=np.max)
@@ -336,3 +376,4 @@ def output_data_batch_normalization(stream,sr,n_fft,hop_length,n_mels,frame_len,
     z = z.cpu().detach().numpy()
     z = z[0] 
     return z
+

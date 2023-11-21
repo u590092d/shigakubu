@@ -27,8 +27,6 @@ import pyaudio
 import sys
 import common_func as cmm
 from sklearn.svm import SVC
-from sklearn.neighbors import KNeighborsClassifier
-
 importlib.reload(cmm)
 share_data_params=np.loadtxt('share_data_params.csv', delimiter=',')
 sr= share_data_params[0].astype(int)
@@ -54,12 +52,17 @@ model.load_state_dict(torch.load(model_save_path))
 
 model.eval()
 points=np.loadtxt('z_points.csv', delimiter=',')
-label=np.loadtxt('z_labels.csv', delimiter=',')
+label=np.loadtxt('z_labels.csv', delimiter=',').astype(int)
 
 label = label.astype(int)
 
 labeltoword = ["a","i","u","e","o","a:","i:","u:","e:","o:"]
 colors = ["red", "green", "blue", "orange", "purple", "brown", "fuchsia", "grey", "olive", "lightblue"]
+
+random_seed = 123
+algorithm = SVC(kernel='rbf', probability=True, random_state=random_seed)
+algorithm.fit(points,label)
+
 
 
 audio_list = []
