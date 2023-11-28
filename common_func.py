@@ -156,19 +156,66 @@ class SegmentationLabel:
             moraSegments.append(curMoraSegment)
         return SegmentationLabel(moraSegments, separatedByMora=True)
     
-class point:
-  def __init__(self,z,none_flag=False):
-      self.z=z
-      self.none_flag = none_flag
-  def predict(self,algorithm,labeltoword=None):
-    z_reshaped = np.reshape(self.z,(1,2))
-    predict = algorithm.predict(z_reshaped)
-    if labeltoword==None:
-      return predict
-    else:
-      return labeltoword[predict[0]]
+class Point:
+  PREDICT_ALGORITHM = None
+  def __init__(self,z,time_start=None,time_end=None,predicted_label=None):
+      
+      self.z=[]
+      for i in z:
+         self.z.append(i)
+      self.time_start = time_start
+      self.time_end = time_end
+      self.predicted_label = predicted_label
+
+  def add(self,other):
+     return Point(self.z+other.z,self.time_start,other.time_end,predicted_label=self.predicted_label)
+
+  def label_can_follow(self,other):
+    if self.predicted_label==other.predicted_label:
+       return True
+    else :
+       return False
+     
+  def predict(self,predict_algorithm=None):
+    if predict_algorithm == None:
+       predict_algorithm = Point.PREDICT_ALGORITHM
+    elif predict_algorithm == None and Point.PREDICT_ALGORITHM == None:
+       return None
+    
+    predict = predict_algorithm.predict(self.z)
+    self.predicted_label = predict[0]
+
+    return predict[0]
+  
+
   def get_z(self):
      return self.z
+  
+
+class Points:
+  def __init__(self,points:Point,point_sorted_label=False):
+      self.points = points
+      self.point_sorted_label = point_sorted_label
+
+
+  def point_sort(self):
+    cur_point:Point = None
+    next_points = []
+    
+    for point in self.points:
+        if cur_point == None:
+          cur_point = point
+        elif cur_point.label_can_follow(point):
+          cur_point = cur_point.add(point)
+        else :
+          next_points.append(cur_point)
+          cur_point = point
+    next_points.append(cur_point)
+    return Points(next_points,point_sorted_label=True)
+
+
+
+
 class visualizer2D:
   def __init__(self,x_lim=[-3,3],y_lim=[-3,3],fig_size=[10,10],image_path="z.png"):
     self.fig_anm = plt.figure(figsize=(fig_size[0],fig_size[1]))
@@ -180,6 +227,7 @@ class visualizer2D:
     self.ylim = self.ax.get_ylim()
   
   def visual(self,x,y):
+    print([x,y])
     self.ax.scatter(x,y, c="pink", alpha=1, linewidths=2,edgecolors="red")
     self.ax.imshow(self.image,extent=[*self.xlim,*self.ylim], aspect='auto',alpha=0.6) 
     plt.draw()
@@ -339,13 +387,14 @@ def stop_recording(audio, stream):
     stream.close()
     audio.terminate()
 
-def output_data(sr,n_fft,hop_length,n_mels,frame_len,dataset_mean,dataset_std,model,device,stream=None,input_file_path=None,standard_flag=False,input_type_file=False,threshold=0):
- 
-       
-    audio_data = stream.read(frame_len)
-    audio_data = np.frombuffer(audio_data, dtype='int16')/32768
-    if input_type_file:
-       audio_data = librosa.load(input_file_path, sr=sr)
+def output_data(sr,n_fft,hop_length,n_mels,frame_len,dataset_mean,dataset_std,model,device,stream=None,input_data=None,standard_flag=False,input_type_stream=True,threshold=0):
+   
+    if not input_type_stream:
+       audio_data = input_data
+    else:
+      audio_data = stream.read(frame_len)
+      audio_data = np.frombuffer(audio_data, dtype='int16')/32768
+    
     if np.abs(np.max(audio_data))>threshold:
       mel_spec = librosa.feature.melspectrogram(y=audio_data, sr=sr, n_fft=n_fft, hop_length=hop_length, n_mels=n_mels,center=False)
       log_mel_spec = librosa.amplitude_to_db(mel_spec, ref=np.max)
@@ -359,10 +408,10 @@ def output_data(sr,n_fft,hop_length,n_mels,frame_len,dataset_mean,dataset_std,mo
       tmp,z,y=model(x,device)
       z = z.cpu().detach().numpy()
       z = z[0] 
-      z = point(z)
+      z = Point([z])
       return z
     else:
-       z=point(z=None,none_flag=True)
+       z=Point(z=None)
     
 def output_data_batch_normalization(stream,sr,n_fft,hop_length,n_mels,frame_len,dataset_mean,dataset_std,model,device):
     audio_data = stream.read(frame_len),
@@ -376,4 +425,22 @@ def output_data_batch_normalization(stream,sr,n_fft,hop_length,n_mels,frame_len,
     z = z.cpu().detach().numpy()
     z = z[0] 
     return z
+
+def slice_encode(sr,n_fft,hop_length,n_mels,frame_len,dataset_mean,dataset_std,model,device,input_data=None,threshold=0):
+  num_frame = len(input_data)//frame_len
+  input_data = input_data[:num_frame*frame_len]
+  print(input_data.shape)
+  latent = []
+  for i in range(0,num_frame):
+    data = input_data[i*frame_len:(i+1)*frame_len]
+    z = output_data(sr,n_fft,hop_length,n_mels,frame_len,dataset_mean,
+                             dataset_std,model,device,stream=None,input_data=data,
+                             standard_flag=False,input_type_stream=False,threshold=0)
+    z.time_start = i*frame_len
+    z.time_end = (i+1)*frame_len
+    print(z)
+    latent.append(z)
+
+
+  return latent
 

@@ -71,28 +71,29 @@ time.sleep(1)
 
 visualizer = cmm.visualizer2D()
 
-while True:
-  if keyboard.is_pressed('escape'):
-    print("break")
-    sys.exit()
-    break
-  z=cmm.output_data(sr,n_fft,hop_length,n_mels,frame_len,dataset_mean,dataset_std,model,device,stream=stream)
-  if z.none_flag==False:
-    value = z.get_z()
-    visualizer.visual(value[0],value[1])
+audio_data ,sr= librosa.load("a.wav")
+print(audio_data.shape)
+latent = cmm.slice_encode(sr,n_fft,hop_length,n_mels,frame_len,dataset_mean,dataset_std,model,device,input_data=audio_data)
+print(latent[0].time_start)
+print(latent[0].time_end)
 
-"""
-while  True:
-  if keyboard.is_pressed('escape'):
-    print("break")
-    break
-  
-  z=output_data(stream)
-  ax.scatter(z[0],z[1], c="pink", alpha=1, linewidths=2,
-      edgecolors="red")
-  ax.set_xlim(-2.5,2.5)
-  ax.set_ylim(-2.5,2.5)
-  plt.draw()
-  plt.pause(0.01)
-  plt.cla()
-"""
+
+for i in latent:
+  print(i.predict(algorithm))
+
+
+tmp_y = [x.predicted_label for x in latent]
+tmp_x = [x.time_end for x in latent]
+
+plt.figure(figsize=(10,10))
+plt.plot(tmp_x,tmp_y)
+plt.show()
+
+print(tmp_x[0])
+print(tmp_y[0])
+latent_before_sorted = cmm.Points(latent)
+
+latent_sorted = latent_before_sorted.point_sort()
+
+for point in latent_sorted.points:
+  print("label:"+str(point.predicted_label)+" start:"+str(round((1/sr)*point.time_start,2))+" end:"+str(round((1/sr)*point.time_end,2)))

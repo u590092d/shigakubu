@@ -75,10 +75,10 @@ while True:
     sys.exit()
     break
   z=cmm.output_data(sr,n_fft,hop_length,n_mels,frame_len,dataset_mean,dataset_std,model,device,stream=stream)
-  if z.none_flag==False:
+  if z.z!=None:
     value = z.get_z()
-    visualizer.visual(value[0],value[1])
-  print("z_predict:"+str(z.predict(algorithm,labeltoword=labeltoword)))
+    visualizer.visual(value[0][0],value[0][1])
+  print("z_predict:"+str(z.predict(predict_algorithm=algorithm)))
 
 """
 while  True:
