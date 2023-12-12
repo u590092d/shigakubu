@@ -47,14 +47,16 @@ class VAE(nn.Module):
       return y
 
     def forward(self, x, device):
+      alpha = 2.0
+      beta = 1.0
       x = x.view(-1, self.x_dim)
       mean, log_var = self.encoder(x)
       delta = 1e-8
-      KL = 0.5 * torch.sum(1 + log_var - mean**2 - torch.exp(log_var))
+      KL = beta * 0.5 * torch.sum(1 + log_var - mean**2 - torch.exp(log_var))
       z = self.sample_z(mean, log_var, device)
       y = self.decoder(z)
       # 本来はmeanだがKLとのスケールを合わせるためにsumで対応
-      reconstruction = torch.sum(x * torch.log(y + delta) + (1 - x) * torch.log(1 - y + delta))
+      reconstruction = alpha * torch.sum(x * torch.log(y + delta) + (1 - x) * torch.log(1 - y + delta))
       lower_bound = [KL, reconstruction]
       return -sum(lower_bound), z, y
 
