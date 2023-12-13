@@ -1,64 +1,10 @@
-import torch
-import IPython.display
-import torch.nn as nn
-import torch.nn.functional as F
 import numpy as np
-import matplotlib.pyplot as plt
-from torch import optim
-import torch.utils as utils
-from torchvision import datasets, transforms
-from sklearn.utils import resample
 import librosa
 import librosa.display
 import os
-import scipy.signal
 import re
-import sys
-import pyaudio
-from PIL import Image
-class VAE(nn.Module):
-    def __init__(self, x_dim, z_dim):
-      super(VAE, self).__init__()
-      self.x_dim = x_dim
-      self.z_dim = z_dim
-      self.fc1 = nn.Linear(x_dim, 20)
-      self.fc2_mean = nn.Linear(20, z_dim)
-      self.fc2_var = nn.Linear(20, z_dim)
-
-      self.fc3 = nn.Linear(z_dim, 20)
-      self.drop1 = nn.Dropout(p=0.2)
-      self.fc4 = nn.Linear(20, x_dim)
-
-    def encoder(self, x):
-      x = x.view(-1, self.x_dim)
-      x = F.relu(self.fc1(x))
-      mean = self.fc2_mean(x)
-      log_var = self.fc2_var(x)
-      return mean, log_var
-
-    def sample_z(self, mean, log_var, device):
-      epsilon = torch.randn(mean.shape, device=device)
-      return mean + epsilon * torch.exp(0.5*log_var)
-
-    def decoder(self, z):
-      y = F.relu(self.fc3(z))
-      y = self.drop1(y)
-      y = torch.sigmoid(self.fc4(y))
-      return y
-
-    def forward(self, x, device):
-      alpha = 2.0
-      beta = 1.0
-      x = x.view(-1, self.x_dim)
-      mean, log_var = self.encoder(x)
-      delta = 1e-8
-      KL = beta * 0.5 * torch.sum(1 + log_var - mean**2 - torch.exp(log_var))
-      z = self.sample_z(mean, log_var, device)
-      y = self.decoder(z)
-      # 本来はmeanだがKLとのスケールを合わせるためにsumで対応
-      reconstruction = alpha * torch.sum(x * torch.log(y + delta) + (1 - x) * torch.log(1 - y + delta))
-      lower_bound = [KL, reconstruction]
-      return -sum(lower_bound), z, y
+from sklearn.utils import resample
+import random 
 
 class ExtentionException(Exception):
     pass
@@ -158,84 +104,6 @@ class SegmentationLabel:
             moraSegments.append(curMoraSegment)
         return SegmentationLabel(moraSegments, separatedByMora=True)
     
-class Point:
-  PREDICT_ALGORITHM = None
-  def __init__(self,z,time_start=None,time_end=None,predicted_label=None):
-      
-      self.z=[]
-      for i in z:
-         self.z.append(i)
-      self.time_start = time_start
-      self.time_end = time_end
-      self.predicted_label = predicted_label
-
-  def add(self,other):
-     return Point(self.z+other.z,self.time_start,other.time_end,predicted_label=self.predicted_label)
-
-  def label_can_follow(self,other):
-    if self.predicted_label==other.predicted_label:
-       return True
-    else :
-       return False
-     
-  def predict(self,predict_algorithm=None):
-    if predict_algorithm == None:
-       predict_algorithm = Point.PREDICT_ALGORITHM
-    elif predict_algorithm == None and Point.PREDICT_ALGORITHM == None:
-       return None
-    
-    predict = predict_algorithm.predict(self.z)
-    self.predicted_label = predict[0]
-
-    return predict[0]
-  
-
-  def get_z(self):
-     return self.z
-  
-
-class Points:
-  def __init__(self,points:Point,point_sorted_label=False):
-      self.points = points
-      self.point_sorted_label = point_sorted_label
-
-
-  def point_sort(self):
-    cur_point:Point = None
-    next_points = []
-    
-    for point in self.points:
-        if cur_point == None:
-          cur_point = point
-        elif cur_point.label_can_follow(point):
-          cur_point = cur_point.add(point)
-        else :
-          next_points.append(cur_point)
-          cur_point = point
-    next_points.append(cur_point)
-    return Points(next_points,point_sorted_label=True)
-
-
-
-
-class visualizer2D:
-  def __init__(self,x_lim=[-3,3],y_lim=[-3,3],fig_size=[10,10],image_path="z.png"):
-    self.fig_anm = plt.figure(figsize=(fig_size[0],fig_size[1]))
-    self.ax=self.fig_anm.add_subplot(1,1,1)
-    self.image = Image.open(image_path)
-    self.ax.set_xlim(x_lim[0],x_lim[1])
-    self.ax.set_ylim(y_lim[0],y_lim[1])
-    self.xlim = self.ax.get_xlim()
-    self.ylim = self.ax.get_ylim()
-  
-  def visual(self,x,y):
-    print([x,y])
-    self.ax.scatter(x,y, c="pink", alpha=1, linewidths=2,edgecolors="red")
-    self.ax.imshow(self.image,extent=[*self.xlim,*self.ylim], aspect='auto',alpha=0.6) 
-    plt.draw()
-    plt.pause(0.1)
-    plt.cla()      
-    
 def read_wave_in_jvs(wave_path,label_path,sr,time_span=800,threshold=0.1,target=['a','i','u','e','o','a:','i:','u:','e:','o:']):
   wave_data, _ = librosa.load(wave_path, sr=sr)
   label = read_lab(label_path)
@@ -261,7 +129,7 @@ def read_wave_in_jvs(wave_path,label_path,sr,time_span=800,threshold=0.1,target=
   return np.array(input_data,dtype=object),np.array(input_label_data,dtype=object)
 
 def read_jvs(folder_num,sr,time_span=800,threshold=0.1,target=['a','i','u','e','o','a:','i:','u:','e:','o:']):
-  folder_path = 'data'
+  folder_path = '../../data/raw'
   wave_folder_path = os.path.join(folder_path,f"jvs{folder_num:03d}\parallel100\wav24kHz16bit")
   label_folder_path = os.path.join(folder_path,f"jvs{folder_num:03d}\parallel100\lab\mon")
   input_data=[]
@@ -280,169 +148,75 @@ def read_jvs(folder_num,sr,time_span=800,threshold=0.1,target=['a','i','u','e','
   input_label_data = np.concatenate(input_label_data)
   return np.array(input_data,dtype=object),np.array(input_label_data,dtype=object)
 
-def cep(audio,frame_len=512,hop_len=256,dim=50):
-  # 窓関数の設定
-  window = np.hamming(frame_len)
-  # フレームごとにケプストラム解析を行う
-  log_data=[]
-  cepstrum_data =[]
-  origin_data = []
-  for wave in audio:
-    cepstrum = []
-    tmp = []
-    log_tmp=[]
-    for i in range(0, len(wave)-hop_len, hop_len):
-      if i+frame_len > len(wave):
-        break
-      # 窓関数をかける
-      frame = wave[i:i+frame_len] * window
-      tmp.append(frame)
-      # フーリエ変換
-      spectrum = np.fft.fft(frame)
-      # 対数振幅スペクトル
-      log_spectrum = np.log(np.abs(spectrum))
-      log_tmp.append(log_spectrum)
-      # 逆フーリエ変換
-      ceps = np.fft.ifft(log_spectrum)
-      ceps[dim:len(ceps)-dim]=0
-      # ケプストラムのリストに追加
-      cepstrum.append(ceps)
-    log_data.append(log_tmp)
-    origin_data.append(tmp)
-    cepstrum_data.append(cepstrum)
-  # ケプストラムの配列に変換
-  cepstrum_data = np.array(cepstrum_data)
-  # 声道スペクトルの抽出
-  vocal_tract_spectrum = np.exp(np.real(cepstrum_data))
-  origin_data = np.array(origin_data)
-  log_data=np.array(log_data)
-  print(log_data.shape)
-  print(vocal_tract_spectrum.shape)
-  print(origin_data.shape)
 
-  # 声道スペクトルからケプストラムへ変換
-  tmp = np.log(vocal_tract_spectrum)
+def phoneme_segmentation(sr=24000,frame_len=4068,phoneme=['a','i','u','e','o','a:','i:','u:','e:','o:'],save_flag = False):
+  #read data from jvs
+  save_file_folder = "../../data/interim"
+  save_file_name = ""
+  for i,p in enumerate(phoneme):
+     save_file_name += p
+     if i != len(phoneme):
+       save_file_name += "-"
+  
+  read_data = []
+  read_label = []
+  no_label=[6,28,30,37,58,74,89]
+  count=0
+  for i in range(1,100):
+    print(count)
+    if i in no_label:
+      continue
+    tmp_data,tmp_label = read_jvs(i,sr,frame_len,target=phoneme)
 
-  # ケプストラムから対数振幅スペクトルへ変換
-  log_spectrum = np.fft.fft(tmp)
-  half_index = log_spectrum.shape[2]//2
-  log_spectrum = log_spectrum.real[:,:,0:half_index]
-  print(log_spectrum.shape)
-  fo = []
-  fo_onehot = []
-  for i,wave_data in enumerate(log_spectrum):
-    tmp = []
-    fo_tmp = []
-    for j,data in enumerate(wave_data):
-      fo_tmp2 = np.zeros(256)
-      max_index = scipy.signal.argrelmax(data, order=3)
-      max_index = max_index[0]
-      tmp.append(max_index)
-      for k in range(4):
-        if 0<=k and k<len(max_index):
-          fo_tmp2[max_index[k]]=1
-      fo_tmp.append(fo_tmp2)
-    fo_onehot.append(fo_tmp)
-    fo.append(tmp)
-  fo = np.array(fo)
-  fo_onehot = np.array(fo_onehot)
-  fig = plt.figure(figsize=(10,6))
-  ax = fig.add_subplot(1, 1, 1)
-  frame = np.random.randint(0,log_spectrum.shape[0])
-  ax.plot(log_spectrum[frame][0][0:log_spectrum.shape[2]])
-  ax.axvline(fo[frame][0][0], ls = "--", color = "navy")
-  ax.axvline(fo[frame][0][1], ls = "--", color = "navy")
-  ax.axvline(fo[frame][0][2], ls = "--", color = "navy")
-  ax.axvline(fo[frame][0][3], ls = "--", color = "navy")
-  plt.xlabel('Time')
-  plt.ylabel('Amplitude')
-  plt.title(f'Waveform of frame {frame}')
-  plt.show()
-  plt.figure(figsize=(10, 6))
-  plt.plot(log_data[frame][0][0:log_spectrum.shape[2]])
-  plt.show()
-  return log_spectrum,fo_onehot,fo
+    read_data.append(tmp_data)
+    read_label.append(tmp_label)
+    count=count+1
+    if count >= 100:
+      break
+  read_data = np.concatenate(read_data)
+  read_label = np.concatenate(read_label)
+  print(read_data.shape)
 
-def normal(x):
+  read_data = np.array(read_data,dtype="float64")
+  for i,l in enumerate(read_label):
+    read_label[i] = phoneme.index(l)%len(phoneme)
+    print(l)
+  read_label = np.array(read_label,dtype="int64")
 
-  x_scaled = (x-x.min())/(x.max()-x.min()+1e-5)
+  # 各クラスの数をカウント
+  class_counts = np.bincount(read_label)
+  for cnt in class_counts:
+    print(cnt)
+  # 最少のクラス数を取得
+  min_class_count = np.min(class_counts)
 
-  return x_scaled
+  # 各クラスごとにサンプリング数を均等化
+  balanced_data = []
+  balanced_label = []
 
-def realtime_recording(sr):
-    CHUNK = 1024  # 音声データのチャンクサイズ
-    FORMAT = pyaudio.paInt16  # 音声データのフォーマット
-    CHANNELS = 1  # モノラル
-    RATE = sr  # サンプリングレート
+  for class_label in np.unique(read_label):
+      class_indices = np.where(read_label == class_label)[0]
+      balanced_indices = resample(class_indices, n_samples=min_class_count, random_state=42)
 
-    p = pyaudio.PyAudio()
+      balanced_data.extend(read_data[balanced_indices])
+      balanced_label.extend(read_label[balanced_indices])
 
-    stream = p.open(format=FORMAT,
-                    channels=CHANNELS,
-                    rate=RATE,
-                    input=True,
-                    output=True,
-                    frames_per_buffer=CHUNK)
-    return p, stream
-def stop_recording(audio, stream):
-    stream.stop_stream()
-    stream.close()
-    audio.terminate()
+  balanced_data = np.array(balanced_data)
+  balanced_label = np.array(balanced_label)
 
-def output_data(sr,n_fft,hop_length,n_mels,frame_len,dataset_mean,dataset_std,model,device,stream=None,input_data=None,standard_flag=False,input_type_stream=True,threshold=0):
+  print(balanced_label.shape)
+  print(read_label[0])
+  sample_num = 50000
+  if balanced_data.shape[0]>sample_num:
+    random_index = random.sample(range(balanced_data.shape[0]),sample_num)
+    random_index = np.array(random_index)
+    balanced_data = balanced_data[random_index]
+    balanced_label = balanced_label[random_index]
+
+  if save_flag:
+       
+  return balanced_data,balanced_label
+
+
+
    
-    if not input_type_stream:
-       audio_data = input_data
-    else:
-      audio_data = stream.read(frame_len)
-      audio_data = np.frombuffer(audio_data, dtype='int16')/32768
-    
-    if np.abs(np.max(audio_data))>threshold:
-      mel_spec = librosa.feature.melspectrogram(y=audio_data, sr=sr, n_fft=n_fft, hop_length=hop_length, n_mels=n_mels,center=False)
-      log_mel_spec = librosa.amplitude_to_db(mel_spec, ref=np.max)
-      if standard_flag:
-        l2 = log_mel_spec - dataset_mean
-        log_mel_spec = l2/dataset_std
-        
-      np_meldata = normal(log_mel_spec)
-      tensor_meldata =torch.from_numpy(np_meldata.astype(np.float32)).clone()
-      x = tensor_meldata.to(device)
-      tmp,z,y=model(x,device)
-      z = z.cpu().detach().numpy()
-      z = z[0] 
-      z = Point([z])
-      return z
-    else:
-       z=Point(z=None)
-    
-def output_data_batch_normalization(stream,sr,n_fft,hop_length,n_mels,frame_len,dataset_mean,dataset_std,model,device):
-    audio_data = stream.read(frame_len),
-    audio_data = np.frombuffer(audio_data, dtype='int16')/32768
-    mel_spec = librosa.feature.melspectrogram(y=audio_data, sr=sr, n_fft=n_fft, hop_length=hop_length, n_mels=n_mels,center=False)
-    log_mel_spec = librosa.amplitude_to_db(mel_spec, ref=np.max)
-    np_meldata = normal(log_mel_spec)
-    tensor_meldata =torch.from_numpy(np_meldata.astype(np.float32)).clone()
-    x = tensor_meldata.to(device)
-    tmp,z,y=model(x,device)
-    z = z.cpu().detach().numpy()
-    z = z[0] 
-    return z
-
-def slice_encode(sr,n_fft,hop_length,n_mels,frame_len,dataset_mean,dataset_std,model,device,input_data=None,threshold=0):
-  num_frame = len(input_data)//frame_len
-  input_data = input_data[:num_frame*frame_len]
-  print(input_data.shape)
-  latent = []
-  for i in range(0,num_frame):
-    data = input_data[i*frame_len:(i+1)*frame_len]
-    z = output_data(sr,n_fft,hop_length,n_mels,frame_len,dataset_mean,
-                             dataset_std,model,device,stream=None,input_data=data,
-                             standard_flag=False,input_type_stream=False,threshold=0)
-    z.time_start = i*frame_len
-    z.time_end = (i+1)*frame_len
-    print(z)
-    latent.append(z)
-
-
-  return latent
-
