@@ -82,15 +82,11 @@ def read_wave_in_jvs(wave_path,label_path,sr,time_span=800,threshold=0.1,target=
 
   return np.array(input_data,dtype=object),np.array(input_label_data,dtype=object)
 
-def read_jvs(folder_num,sr,time_span=800,threshold=0.1,target=['a','i','u','e','o']):
- # folder_path = f"../../data/raw/"
-  parent_folder = Path(__file__).parents[2]
-
-  folder_path = os.path.join(parent_folder,'data','raw',f'jvs{folder_num:03d}','parallel100')
+def read_jvs(source_data_path,folder_num,sr,time_span=800,threshold=0.1,target=['a','i','u','e','o']):
+  folder_path = os.path.join(source_data_path,f'jvs{folder_num:03d}','parallel100')
   wave_folder_path = os.path.abspath(os.path.join(folder_path,'wav24kHz16bit'))
   label_folder_path = os.path.abspath(os.path.join(folder_path,'lab','mon'))
- # wave_folder_path = os.path.join(folder_path,f"jvs{folder_num:03d}/parallel100/wav24kHz16bit/")
- # label_folder_path = os.path.join(folder_path,f"jvs{folder_num:03d}/parallel100/lab/mon/")
+
   input_data=[]
 
   input_label_data=[]
@@ -108,16 +104,14 @@ def read_jvs(folder_num,sr,time_span=800,threshold=0.1,target=['a','i','u','e','
   return np.array(input_data,dtype=object),np.array(input_label_data,dtype=object)
 
 
-def phoneme_segmentation(sr=24000,frame_len=4068,phoneme=['a','i','u','e','o'],save_flag = False):
+def phoneme_segmentation(source_folder_path,dist_folder_path,sr=24000,frame_len=2048,cut_len=4096,phoneme=['a','i','u','e','o'],save_flag = False):
   #read data from jvs
-  parent_folder = Path(__file__).parents[2]
-  print(parent_folder)  
   save_file_name = ""
   for i,p in enumerate(phoneme):
      save_file_name += p
      if i != len(phoneme):
        save_file_name += "-"
-  save_file_name += str(sr)+"_"+str(frame_len)
+  save_file_name += "{}_{}_{}".format(sr,frame_len,cut_len)
   save_file_label_name = save_file_name + "_label.csv"
   save_file_data_name = save_file_name + "_data.csv"
   read_data = []
@@ -125,11 +119,11 @@ def phoneme_segmentation(sr=24000,frame_len=4068,phoneme=['a','i','u','e','o'],s
   no_label=[6,28,30,37,58,74,89]
   count=0
   for i in range(1,100):
-    print(count)
     if i in no_label:
       continue
-    tmp_data,tmp_label = read_jvs(i,sr,frame_len,target=phoneme)
-
+    tmp_data,tmp_label = read_jvs(source_folder_path,i,sr,cut_len,target=phoneme)
+    center = cut_len//2
+    tmp_data = [arr[center-frame_len//2:center+frame_len//2] for arr in tmp_data]
     read_data.append(tmp_data)
     read_label.append(tmp_label)
     count=count+1
@@ -165,8 +159,7 @@ def phoneme_segmentation(sr=24000,frame_len=4068,phoneme=['a','i','u','e','o'],s
   balanced_data = np.array(balanced_data)
   balanced_label = np.array(balanced_label)
 
-  print(balanced_label.shape)
-  print(read_label[0])
+  print(balanced_data.shape)
   sample_num = 50000
   if balanced_data.shape[0]>sample_num:
     random_index = random.sample(range(balanced_data.shape[0]),sample_num)
@@ -176,8 +169,8 @@ def phoneme_segmentation(sr=24000,frame_len=4068,phoneme=['a','i','u','e','o'],s
 
   if save_flag:
 
-    np.savetxt(os.path.join(parent_folder,"data","interim",save_file_label_name),balanced_label , delimiter=',')
-    np.savetxt(os.path.join(parent_folder,"data","interim",save_file_data_name),balanced_data , delimiter=',')
+    np.savetxt(os.path.join(dist_folder_path,save_file_label_name),balanced_label , delimiter=',')
+    np.savetxt(os.path.join(dist_folder_path,save_file_data_name),balanced_data , delimiter=',')
        
   return balanced_data,balanced_label
 
